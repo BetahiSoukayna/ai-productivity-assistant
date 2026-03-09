@@ -38,16 +38,6 @@ npm install
 npm start
 ```
 
-## 📚 Documentation
-
-See `docs/` folder for detailed documentation.
-
-## 👥 Team
-
-- **P1:** Google APIs Integration
-- **P2:** AI & RAG Pipeline  
-- **P3:** Frontend React
-
 ---
 
-**Status:** 🚀 In Development
+**Status:** In Development

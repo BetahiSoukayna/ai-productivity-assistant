@@ -1,0 +1,8 @@
+{
+  "name": "Assistant de Productivité IA",
+  "description": "Un tableau de bord moderne boosté par l'IA pour gérer votre productivité Google Workspace : emails, documents, calendriers et tâches.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}

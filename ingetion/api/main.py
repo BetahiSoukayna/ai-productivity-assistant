@@ -1,12 +1,20 @@
+import os
+from dotenv import load_dotenv
+from api.routes_gmail import router as gmail_router
+
+# Charger les variables d'environnement AVANT les imports qui en dépendent
+load_dotenv()
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from loguru import logger
-import tempfile, os, shutil
+import tempfile, shutil
 from phas1.peipline import process_file
 from phas2.graph import ask
 
 app = FastAPI(title="RAG API", version="1.0")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,12 +22,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.include_router(gmail_router)
 
 # ── Schémas ────────────────────────────────────────────────
 
 class AskRequest(BaseModel):
     question: str
+    user_id:  str = "default_user"
     filters:  dict = {}
 
 class AskResponse(BaseModel):
@@ -39,7 +48,7 @@ def health():
 @app.post("/ask", response_model=AskResponse)
 def ask_question(req: AskRequest):
     """
-    Endpoint utilisé par la Personne 3 (interface).
+    Endpoint utilisé par le frontend React.
     Reçoit une question, retourne une réponse avec sources.
     """
     if not req.question.strip():
@@ -58,13 +67,14 @@ async def ingest_file(
     file: UploadFile = File(...),
     source:   str = "unknown",
     filename: str = None,
+    user_id:  str = "default_user",
     date:     str = None,
     sender:   str = None,
     subject:  str = None,
     drive_id: str = None,
 ):
     """
-    Endpoint utilisé par la Personne 1 (connecteurs Google).
+    Endpoint utilisé pour l'ingestion de fichiers.
     Reçoit un fichier, le traite et l'indexe dans ChromaDB.
     """
     # Sauvegarde temporaire
@@ -76,6 +86,7 @@ async def ingest_file(
     metadata = {
         "source":   source,
         "filename": filename or file.filename,
+        "user_id":  user_id,
         "date":     date     or "",
         "sender":   sender   or "",
         "subject":  subject  or "",
@@ -84,7 +95,8 @@ async def ingest_file(
 
     try:
         result = process_file(tmp_path, metadata)
-        return {"status": "ok", "indexed": result}
+        indexed = result.get("chunks_indexed", 0) if result else 0
+        return {"status": "success", "indexed": indexed}
     except Exception as e:
         logger.error(f"Erreur /ingest : {e}")
         raise HTTPException(500, str(e))

@@ -1,13 +1,12 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { MainLayout } from './components/layout/MainLayout';
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { MainLayout } from "./components/layout/MainLayout";
 
-// Lazy load pages for performance
-import Dashboard from './pages/Dashboard';
-import Emails from './pages/Emails';
-import Documents from './pages/Documents';
-import CalendarPage from './pages/Calendar';
-import Tasks from './pages/Tasks';
-import Settings from './pages/Settings';
+import Dashboard from "./pages/Dashboard";
+import Emails from "./pages/Emails";
+import Documents from "./pages/Documents";
+import CalendarPage from "./pages/Calendar";
+import Tasks from "./pages/Tasks";
+import Settings from "./pages/Settings";
 
 export default function App() {
   return (

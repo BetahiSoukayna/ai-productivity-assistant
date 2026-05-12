@@ -1,158 +1,226 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { 
-  TrendingUp, 
-  Mail, 
-  Calendar, 
-  Clock, 
-  FileText,
-  ArrowUpRight,
-  MoreVertical
-} from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { useState } from "react";
+import { askRag, healthCheck } from "../services/api";
 
-const stats = [
-  { label: 'E-mails non lus', value: '12', icon: Mail, color: 'text-blue-600', bg: 'bg-blue-50' },
-  { label: 'Réunions aujourd\'hui', value: '4', icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
-  { label: 'Tâches en attente', value: '8', icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  { label: 'Docs récents', value: '24', icon: FileText, color: 'text-amber-600', bg: 'bg-amber-50' },
-];
+type RagSource = {
+  filename?: string;
+  source?: string;
+  type?: string;
+  content_type?: string;
+  score?: number;
+  confidence?: number;
+};
 
-const activity = [
-  { id: 1, type: 'email', title: 'Nouvelle proposition de projet de Sarah', time: 'il y a 10 min', status: 'Important' },
-  { id: 2, type: 'calendar', title: 'Réunion de planification de sprint', time: '2 heures restantes', status: 'À venir' },
-  { id: 3, type: 'task', title: 'Préparer la revue du budget Q2', time: 'Pour aujourd\'hui', status: 'Urgent' },
-  { id: 4, type: 'doc', title: 'Plan_Strategique_2025.pdf', time: 'Modifié hier', status: 'Brouillon' },
-];
+export default function Dashboard() {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const [sources, setSources] = useState<RagSource[]>([]);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [typeDetected, setTypeDetected] = useState("");
+  const [backendStatus, setBackendStatus] = useState("Non vérifié");
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
 
-const itemsContainer = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1
+  const handleHealthCheck = async () => {
+    setChecking(true);
+    setError("");
+
+    try {
+      const res = await healthCheck();
+      setBackendStatus(res.status || "ok");
+    } catch (err) {
+      console.error(err);
+      setBackendStatus("Hors ligne");
+      setError("Impossible de contacter le backend FastAPI.");
+    } finally {
+      setChecking(false);
     }
-  }
-};
+  };
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0 }
-};
+  const handleAsk = async () => {
+    if (!question.trim()) {
+      setError("Veuillez écrire une question.");
+      return;
+    }
 
-const Dashboard: React.FC = () => {
+    setLoading(true);
+    setError("");
+    setAnswer("");
+    setSources([]);
+    setConfidence(null);
+    setTypeDetected("");
+
+    try {
+      const res = await askRag(question, "test_user");
+
+      setAnswer(res.answer || res.response || res.result || "Aucune réponse reçue.");
+      setSources(res.sources || []);
+      setConfidence(
+        typeof res.confidence === "number" ? res.confidence : null
+      );
+      setTypeDetected(res.type_detected || res.type || "");
+    } catch (err) {
+      console.error(err);
+      setError("Erreur lors de l’appel au système RAG.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEnterSubmit = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && e.ctrlKey) {
+      handleAsk();
+    }
+  };
+
+  const formatScore = (value?: number) => {
+    if (value === undefined || value === null) return "";
+    if (value <= 1) return `${Math.round(value * 100)}%`;
+    return `${Math.round(value)}%`;
+  };
+
   return (
-    <div className="space-y-10">
-      <header>
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900 font-sans">
-          Bon retour par ici, <span className="text-blue-600">Jean</span>
+    <div className="p-6 space-y-6">
+      <section>
+        <h1 className="text-2xl font-bold text-gray-900">
+          AI Productivity Assistant
         </h1>
-        <p className="text-gray-500 mt-2 text-lg">Voici ce qu'il se passe aujourd'hui dans votre espace de travail.</p>
-      </header>
+        <p className="text-gray-600 mt-1">
+          Assistant RAG connecté à ChromaDB pour interroger les données indexées
+          depuis Gmail, Drive ou des fichiers locaux.
+        </p>
+      </section>
 
-      {/* Stats Grid */}
-      <motion.div 
-        variants={itemsContainer}
-        initial="hidden"
-        animate="show"
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-stats gap-6"
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}
-      >
-        {stats.map((stat, idx) => (
-          <motion.div 
-            key={idx}
-            variants={itemVariants}
-            className="p-6 bg-white rounded-2xl border border-gray-100 shadow-card hover:shadow-deep transition-all duration-300 group flex items-center justify-between"
+      <section className="bg-white border rounded-xl shadow-sm p-5">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              État du backend
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Statut :{" "}
+              <span
+                className={
+                  backendStatus === "ok"
+                    ? "font-semibold text-green-600"
+                    : backendStatus === "Hors ligne"
+                    ? "font-semibold text-red-600"
+                    : "font-semibold text-gray-700"
+                }
+              >
+                {backendStatus}
+              </span>
+            </p>
+          </div>
+
+          <button
+            onClick={handleHealthCheck}
+            disabled={checking}
+            className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
           >
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</p>
-              <h3 className="text-3xl font-bold text-gray-900">{stat.value}</h3>
-            </div>
-            <div className={cn("p-3 rounded-xl transition-transform group-hover:scale-110", stat.bg)}>
-              <stat.icon className={cn("h-6 w-6", stat.color)} />
-            </div>
-          </motion.div>
-        ))}
-      </motion.div>
+            {checking ? "Vérification..." : "Vérifier API"}
+          </button>
+        </div>
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Recent Activity */}
-        <div className="lg:col-span-8">
-          <section className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">Actions prioritaires récentes</h2>
-              <button className="text-blue-600 hover:text-blue-700 font-semibold text-sm flex items-center gap-1">
-                Voir tout <ArrowUpRight className="h-4 w-4" />
-              </button>
+      <section className="bg-white border rounded-xl shadow-sm p-5 space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">
+            Chat RAG global
+          </h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Pose une question sur les documents déjà indexés dans ChromaDB.
+          </p>
+        </div>
+
+        <textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={handleEnterSubmit}
+          placeholder="Exemple : Quel est l'objectif du projet AI Productivity Assistant ?"
+          className="w-full min-h-[130px] border rounded-lg p-3 outline-none focus:ring-2 focus:ring-green-500"
+        />
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleAsk}
+            disabled={loading}
+            className="px-5 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+          >
+            {loading ? "Réflexion en cours..." : "Demander"}
+          </button>
+
+          <span className="text-xs text-gray-500">
+            Astuce : Ctrl + Entrée pour envoyer
+          </span>
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
+            {error}
+          </div>
+        )}
+
+        {answer && (
+          <div className="p-4 rounded-lg bg-gray-50 border space-y-3">
+            <h3 className="font-semibold text-gray-900">Réponse</h3>
+
+            <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">
+              {answer}
             </div>
-            <div className="divide-y divide-gray-50">
-              {activity.map((item) => (
-                <div key={item.id} className="p-5 hover:bg-gray-50/50 transition-colors flex items-center gap-5 cursor-pointer group">
-                  <div className={cn(
-                    "h-12 w-12 rounded-full flex items-center justify-center shrink-0 border border-gray-100 bg-white shadow-sm",
-                    item.type === 'email' ? 'text-blue-500' : 
-                    item.type === 'calendar' ? 'text-purple-500' :
-                    item.type === 'task' ? 'text-emerald-500' : 'text-amber-500'
-                  )}>
-                    {item.type === 'email' && <Mail className="h-5 w-5" />}
-                    {item.type === 'calendar' && <Calendar className="h-5 w-5" />}
-                    {item.type === 'task' && <Clock className="h-5 w-5" />}
-                    {item.type === 'doc' && <FileText className="h-5 w-5" />}
+
+            <div className="flex flex-wrap gap-3 text-sm text-gray-600 pt-2">
+              {confidence !== null && (
+                <span className="px-3 py-1 rounded-full bg-green-100 text-green-700">
+                  Confiance : {formatScore(confidence)}
+                </span>
+              )}
+
+              {typeDetected && (
+                <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-700">
+                  Type détecté : {typeDetected}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {sources.length > 0 && (
+          <div className="p-4 rounded-lg border bg-white">
+            <h3 className="font-semibold text-gray-900 mb-3">
+              Sources consultées
+            </h3>
+
+            <ul className="space-y-2">
+              {sources.map((src, index) => (
+                <li
+                  key={index}
+                  className="text-sm text-gray-700 border-b last:border-b-0 pb-2"
+                >
+                  <div className="font-medium">
+                    {src.filename || src.source || `Source ${index + 1}`}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-base font-semibold text-gray-900 truncate">
-                      {item.title}
-                    </h4>
-                    <p className="text-sm text-gray-500 mt-0.5">{item.time}</p>
+
+                  <div className="text-gray-500">
+                    {(src.type || src.content_type) && (
+                      <span>Type : {src.type || src.content_type}</span>
+                    )}
+
+                    {(src.score !== undefined ||
+                      src.confidence !== undefined) && (
+                      <span>
+                        {" "}
+                        — Score :{" "}
+                        {formatScore(src.score ?? src.confidence)}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className={cn(
-                      "px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider",
-                      item.status === 'Important' || item.status === 'Urgent' ? 'bg-red-50 text-red-600' :
-                      item.status === 'À venir' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'
-                    )}>
-                      {item.status}
-                    </span>
-                    <button className="text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
+                </li>
               ))}
-            </div>
-          </section>
-        </div>
-
-        {/* AI Assistant Summary Tool */}
-        <div className="lg:col-span-4">
-          <section className="ai-gradient rounded-3xl p-8 text-white shadow-deep h-full relative overflow-hidden flex flex-col justify-between">
-            <div className="relative z-10">
-              <div className="bg-white/20 backdrop-blur-sm h-12 w-12 rounded-2xl flex items-center justify-center mb-6">
-                <TrendingUp className="h-6 w-6 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold leading-tight">Brief quotidien IA</h2>
-              <p className="text-white/90 mt-3 text-lg opacity-90 leading-relaxed">
-                Vous avez 3 tâches prioritaires aujourd'hui. Votre après-midi est libre pour le travail de fond après la réunion de 14h.
-              </p>
-            </div>
-            
-            <div className="mt-8 space-y-4 relative z-10">
-              <button className="w-full bg-white text-blue-700 font-bold py-4 rounded-2xl shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
-                Générer un planning intelligent
-              </button>
-              <button className="w-full bg-white/10 text-white border border-white/20 font-bold py-4 rounded-2xl hover:bg-white/20 transition-all backdrop-blur-sm">
-                Voir les analyses de productivité
-              </button>
-            </div>
-
-            {/* Decorative circles */}
-            <div className="absolute -bottom-10 -right-10 h-40 w-40 bg-white/10 rounded-full blur-3xl"></div>
-            <div className="absolute top-0 right-0 h-32 w-32 bg-indigo-400/20 rounded-full blur-3xl"></div>
-          </section>
-        </div>
-      </div>
+            </ul>
+          </div>
+        )}
+      </section>
     </div>
   );
-};
-
-export default Dashboard;
+}

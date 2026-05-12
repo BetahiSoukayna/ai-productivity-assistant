@@ -11,12 +11,23 @@ from phas1.extractors.image import extract_text_from_image
 from phas1.chunker import create_chunks
 from .indexer import index_chunks
 
+
+def extract_txt(file_path: str) -> dict:
+    """Extracteur simple pour les fichiers texte brut (.txt)."""
+    path = Path(file_path)
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+    return {
+        "markdown": f"# {path.stem}\n\n{content}",
+        "metadata": {"source": str(path), "file_type": "txt"}
+    }
+
 # Mapping des extensions vers les fonctions d'extraction
 EXTRACTORS = {
     # Documents textuels et techniques
     ".pdf": pdf_extractor.extract_pdf,
     ".docx": text_extractor.extract_docx,
-    ".txt": text_extractor.extract_docx,
+    ".txt": extract_txt,
     
     # Données structurées
     ".xlsx": table_extractor.extract_excel,
@@ -30,7 +41,7 @@ EXTRACTORS = {
     ".webp": extract_text_from_image
 }
 
-def process_file(file_path: str) -> dict:
+def process_file(file_path: str, metadata: dict = None) -> dict:
     """
     Orchestrateur principal : 
     Extraction -> Nettoyage -> Chunking -> Indexation Cloud
@@ -57,7 +68,7 @@ def process_file(file_path: str) -> dict:
         if isinstance(raw_result, str):
             # Cas des images (renvoient souvent juste une chaîne de texte)
             markdown_content = raw_result
-            metadata = {
+            file_metadata = {
                 "filename": path.name,
                 "source": path.name, # FIX : Force la présence de 'source'
                 "extension": ext,
@@ -66,15 +77,19 @@ def process_file(file_path: str) -> dict:
         else:
             # Cas des PDF/Excel/Docx (renvoient un dictionnaire)
             markdown_content = raw_result.get("markdown", "")
-            metadata = raw_result.get("metadata", {})
+            file_metadata = raw_result.get("metadata", {})
             
             # Garantir que les clés essentielles sont là pour l'indexeur
-            metadata["filename"] = path.name
-            if "source" not in metadata:
-                metadata["source"] = path.name
+            file_metadata["filename"] = path.name
+            if "source" not in file_metadata:
+                file_metadata["source"] = path.name
             
-            if "content_type" not in metadata:
-                metadata["content_type"] = "table" if ext in ['.xlsx', '.csv'] else "text"
+            if "content_type" not in file_metadata:
+                file_metadata["content_type"] = "table" if ext in ['.xlsx', '.csv'] else "text"
+
+        # Fusionner les metadata passées en paramètre (ex: user_id, source API)
+        if metadata:
+            file_metadata.update(metadata)
 
         # 3. NETTOYAGE DU CONTENU
         markdown_content = clean_markdown(markdown_content)
@@ -89,7 +104,7 @@ def process_file(file_path: str) -> dict:
         print("--- FIN DE L'APERÇU ---\n")
 
         # 4. CHUNKING (Découpage en morceaux)
-        chunks = create_chunks(markdown_content, metadata)
+        chunks = create_chunks(markdown_content, file_metadata)
         
         # 5. INDEXATION (Envoi au Cloud ChromaDB)
         # On s'assure que chaque chunk a bien ses métadonnées avec 'source'
@@ -104,9 +119,15 @@ def process_file(file_path: str) -> dict:
             return None
 
         logger.info(f"📡 Envoi de {len(chunks_to_send)} chunks vers ChromaDB Cloud...")
-        index_chunks(chunks_to_send)
+        indexed_count = index_chunks(chunks_to_send)
 
-        return {"markdown": markdown_content, "metadata": metadata}
+        return {
+            "markdown": markdown_content,
+            "metadata": file_metadata,
+            "chunks_indexed": indexed_count,
+            "filename": path.name,
+            "status": "success"
+        }
 
     except Exception as e:
         logger.error(f"💥 Erreur critique lors du traitement de {path.name} : {e}")

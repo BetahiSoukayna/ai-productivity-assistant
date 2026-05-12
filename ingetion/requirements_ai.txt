@@ -1,0 +1,7 @@
+# === Dépendances optionnelles (mode image avancé) ===
+# Installer uniquement si nécessaire pour le traitement d'images
+transformers>=4.40.0
+torch>=2.2.0
+einops>=0.7.0
+anthropic
+openai

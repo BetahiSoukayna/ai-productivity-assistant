@@ -1,38 +1,30 @@
-import React from 'react';
-import { Search, Bell, HelpCircle } from 'lucide-react';
-import { useStore } from '@/src/store/useStore';
-
-export const Header: React.FC = () => {
-  const { user } = useStore();
-
+export function Header() {
   return (
-    <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-6 sticky top-0 z-30 shrink-0">
-      <div className="flex-1 max-w-md relative">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-        <input 
-          type="text" 
-          placeholder="Chercher dans vos emails..."
-          className="w-full bg-gray-100 border border-transparent rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-sans"
-        />
-      </div>
+    <header className="fixed left-[248px] right-0 top-0 z-40 h-[72px] border-b border-slate-200 bg-white/90 backdrop-blur">
+      <div className="flex h-full items-center justify-between px-6">
+        <div className="flex w-full max-w-xl items-center rounded-2xl bg-slate-100 px-4 py-3">
+          <span className="mr-3 text-slate-400">⌕</span>
+          <input
+            className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+            placeholder="Rechercher dans vos emails, documents ou tâches..."
+          />
+        </div>
 
-      <div className="flex items-center gap-6 ml-8">
-        <button className="text-gray-500 hover:text-gray-900 relative">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 border-2 border-white rounded-full"></span>
-        </button>
-        <button className="text-gray-500 hover:text-gray-900">
-          <HelpCircle className="h-5 w-5" />
-        </button>
-        
-        <div className="h-8 w-px bg-gray-200"></div>
+        <div className="flex items-center gap-4">
+          <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100">
+            🔔
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" />
+          </button>
 
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-semibold border border-blue-200 text-sm">
+          <button className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
+            ?
+          </button>
+
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-700">
             JD
           </div>
         </div>
       </div>
     </header>
   );
-};
+}

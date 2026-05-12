@@ -1,20 +1,19 @@
-import React from 'react';
-import { Outlet } from 'react-router-dom';
-import { Sidebar } from './Sidebar';
-import { Header } from './Header';
+import { Outlet } from "react-router-dom";
+import { Sidebar } from "./Sidebar";
+import { Header } from "./Header";
 
-export const MainLayout: React.FC = () => {
+export function MainLayout() {
   return (
-    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
+    <div className="min-h-screen bg-[#f6f8fc] text-slate-900">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+      <div className="min-h-screen pl-[248px]">
         <Header />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden relative">
-          <div className="max-w-7xl mx-auto p-8 min-h-full">
-            <Outlet />
-          </div>
+
+        <main className="min-h-[calc(100vh-72px)] pt-[72px]">
+          <Outlet />
         </main>
       </div>
     </div>
   );
-};
+}

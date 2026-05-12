@@ -1,286 +1,443 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Search, 
-  Filter, 
-  MoreVertical, 
-  Star, 
-  Trash2, 
-  CheckCircle,
-  Clock,
-  Sparkles,
-  ChevronRight,
-  Reply,
-  Copy,
-  Send,
-  Paperclip,
-  FileText
-} from 'lucide-react';
-import { cn } from '@/src/lib/utils';
-import { summarizeEmail } from '@/src/lib/gemini';
+import { useEffect, useMemo, useState } from "react";
+import DOMPurify from "dompurify";
+import {
+  getGmailEmails,
+  getGmailEmailDetail,
+  summarizeGmailEmail,
+  detectGmailEmailImportance,
+  suggestGmailEmailReply,
+  addGmailEmailToMemory,
+} from "../services/api";
 
-interface Email {
+type GmailEmail = {
   id: string;
-  sender: { name: string; email: string; avatar: string };
+  thread_id?: string;
   subject: string;
-  preview: string;
-  body: string;
-  time: string;
-  unread: boolean;
-  important: boolean;
-  attachments?: string[];
+  sender: string;
+  date: string;
+  snippet: string;
+};
+
+type EmailDetail = {
+  id: string;
+  thread_id?: string;
+  subject: string;
+  sender: string;
+  date: string;
+  snippet?: string;
+  body?: string;
+};
+
+function senderName(sender: string) {
+  if (!sender) return "Inconnu";
+  const match = sender.match(/^(.*?)\s*</);
+  return match ? match[1].trim() || "Inconnu" : sender;
 }
 
-const mockEmails: Email[] = [
-  {
-    id: '1',
-    sender: { name: 'Sarah Wilson', email: 'sarah.w@corp.com', avatar: 'https://picsum.photos/seed/sarah/80/80' },
-    subject: 'Planification stratégique Q2 - Brouillon final',
-    preview: 'Salut Jean, j\'ai terminé le brouillon pour la stratégie Q2. Jette un œil à la roadmap en pièce jointe...',
-    body: `Salut Jean,
+function senderEmail(sender: string) {
+  if (!sender) return "";
+  const match = sender.match(/<([^>]+)>/);
+  return match ? match[1] : sender;
+}
 
-J'ai terminé le brouillon pour la planification stratégique du deuxième trimestre (Q2). L'accent sera mis sur le passage à l'échelle de nos capacités IA et l'amélioration de la rétention client.
+function firstLetter(sender: string) {
+  return senderName(sender).charAt(0).toUpperCase() || "U";
+}
 
-J'ai joint la roadmap complète pour ton examen. Fais-moi savoir ce que tu en penses d'ici jeudi soir afin que nous puissions la finaliser pour la réunion de vendredi.
+function formatDate(dateString: string) {
+  if (!dateString) return "";
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return dateString;
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
-Merci,
-Sarah`,
-    time: '09:45',
-    unread: true,
-    important: true,
-    attachments: ['roadmap_q2.pdf']
-  },
-  {
-    id: '2',
-    sender: { name: 'Service IT', email: 'support@corp.com', avatar: 'https://picsum.photos/seed/it/80/80' },
-    subject: 'Alerte de sécurité : Nouvelle connexion détectée',
-    preview: 'Une nouvelle connexion a été détectée sur votre compte à partir d\'un navigateur Chrome sur Windows...',
-    body: 'Une nouvelle connexion a été détectée sur votre compte à partir d\'un navigateur Chrome sur Windows. Si c\'était vous, vous pouvez ignorer cet e-mail. Sinon, veuillez réinitialiser votre mot de passe immédiatement.',
-    time: 'il y a 2h',
-    unread: false,
-    important: false
-  },
-  {
-    id: '3',
-    sender: { name: 'Équipe Marketing', email: 'marketing@corp.com', avatar: 'https://picsum.photos/seed/market/80/80' },
-    subject: 'Newsletter - Mises à jour d\'avril 2025',
-    preview: 'Bienvenue dans nos mises à jour mensuelles ! Ce mois-ci, nous avons des nouvelles excitantes sur le lancement...',
-    body: 'Découvrez nos dernières innovations et les mises à jour de l\'équipe dans la newsletter de ce mois-ci...',
-    time: 'Hier',
-    unread: false,
-    important: false
-  }
-];
+function isHtml(content: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(content);
+}
 
-const Emails: React.FC = () => {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [summary, setSummary] = useState<string | null>(null);
+export default function Emails() {
+  const [emails, setEmails] = useState<GmailEmail[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<EmailDetail | null>(null);
 
-  const selectedEmail = mockEmails.find(e => e.id === selectedId);
+  const [query, setQuery] = useState("");
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [actionLoading, setActionLoading] = useState("");
+  const [aiResult, setAiResult] = useState("");
+  const [memoryResult, setMemoryResult] = useState("");
+  const [error, setError] = useState("");
+
+  const loadEmails = async () => {
+    setLoadingEmails(true);
+    setError("");
+
+    try {
+      const res = await getGmailEmails(30, query);
+      setEmails(res.emails || []);
+    } catch (err) {
+      console.error(err);
+      setError("Impossible de charger la boîte Gmail.");
+    } finally {
+      setLoadingEmails(false);
+    }
+  };
+
+  const openEmail = async (id: string) => {
+    setLoadingDetail(true);
+    setError("");
+    setAiResult("");
+    setMemoryResult("");
+
+    try {
+      const res = await getGmailEmailDetail(id);
+      setSelectedEmail(res.email);
+    } catch (err) {
+      console.error(err);
+      setError("Impossible d’ouvrir cet email.");
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
 
   const handleSummarize = async () => {
     if (!selectedEmail) return;
-    setIsSummarizing(true);
-    setSummary(null);
-    const res = await summarizeEmail(selectedEmail.subject, selectedEmail.body);
-    setSummary(res || "Échec de la génération du résumé.");
-    setIsSummarizing(false);
+    setActionLoading("summary");
+    setAiResult("");
+    setError("");
+
+    try {
+      const res = await summarizeGmailEmail(selectedEmail.id);
+      setAiResult(res.summary || JSON.stringify(res, null, 2));
+    } catch {
+      setError("Erreur lors du résumé de l’email.");
+    } finally {
+      setActionLoading("");
+    }
   };
 
+  const handleReply = async () => {
+    if (!selectedEmail) return;
+    setActionLoading("reply");
+    setAiResult("");
+    setError("");
+
+    try {
+      const res = await suggestGmailEmailReply(selectedEmail.id);
+      setAiResult(res.suggested_reply || JSON.stringify(res, null, 2));
+    } catch {
+      setError("Erreur lors de la suggestion de réponse.");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const handleImportance = async () => {
+    if (!selectedEmail) return;
+    setActionLoading("importance");
+    setAiResult("");
+    setError("");
+
+    try {
+      const res = await detectGmailEmailImportance(selectedEmail.id);
+      setAiResult(res.result || JSON.stringify(res, null, 2));
+    } catch {
+      setError("Erreur lors de l’analyse d’importance.");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  const handleAddToMemory = async () => {
+    if (!selectedEmail) return;
+
+    const ok = window.confirm(
+      "Ajouter cet email à la mémoire IA ? Il sera indexé dans ChromaDB et utilisé par le Chat RAG."
+    );
+
+    if (!ok) return;
+
+    setActionLoading("memory");
+    setMemoryResult("");
+    setError("");
+
+    try {
+      const res = await addGmailEmailToMemory(selectedEmail.id, "test_user");
+      setMemoryResult(
+        `Email ajouté à la mémoire IA. Chunks indexés : ${res.indexed}`
+      );
+    } catch {
+      setError("Erreur lors de l’ajout à la mémoire IA.");
+    } finally {
+      setActionLoading("");
+    }
+  };
+
+  useEffect(() => {
+    loadEmails();
+  }, []);
+
+  const sanitizedBody = useMemo(() => {
+    const raw = selectedEmail?.body || selectedEmail?.snippet || "";
+    if (!raw) return "";
+
+    if (isHtml(raw)) {
+      return DOMPurify.sanitize(raw);
+    }
+
+    return DOMPurify.sanitize(raw.replace(/\n/g, "<br/>"));
+  }, [selectedEmail]);
+
   return (
-    <div className="flex h-[calc(100vh-10rem)] gap-6 overflow-hidden">
-      {/* Email List */}
-      <div className={cn(
-        "bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col transition-all duration-500",
-        selectedId ? "w-1/2" : "w-full"
-      )}>
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold">Boîte de réception</h2>
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              <button className="px-3 py-1 text-xs font-bold bg-white rounded-md shadow-sm text-blue-600">Tout</button>
-              <button className="px-3 py-1 text-xs font-bold text-gray-500 hover:text-gray-700">Non lus</button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-              <Filter className="h-5 w-5" />
-            </button>
-            <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-              <Search className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto divide-y divide-gray-50 p-2">
-          {mockEmails.map((email) => (
-            <div 
-              key={email.id}
-              onClick={() => {
-                setSelectedId(email.id);
-                setSummary(null);
-              }}
-              className={cn(
-                "p-4 rounded-2xl cursor-pointer transition-all flex gap-4 group relative",
-                selectedId === email.id ? "bg-blue-50/50" : "hover:bg-gray-50"
-              )}
-            >
-              <img 
-                src={email.sender.avatar} 
-                alt={email.sender.name}
-                className="h-12 w-12 rounded-full border border-gray-100 shadow-sm shrink-0"
-                referrerPolicy="no-referrer"
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <span className={cn("text-sm font-bold truncate", email.unread ? "text-gray-900" : "text-gray-500")}>
-                    {email.sender.name}
-                  </span>
-                  <span className="text-xs text-gray-400 whitespace-nowrap">{email.time}</span>
-                </div>
-                <h4 className={cn("text-sm truncate mt-0.5", email.unread ? "font-bold text-gray-900" : "font-semibold text-gray-700")}>
-                  {email.subject}
-                </h4>
-                <p className="text-xs text-gray-500 line-clamp-1 mt-1">{email.preview}</p>
-                
-                <div className="flex items-center gap-3 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button className="text-gray-400 hover:text-blue-500"><Star className="h-4 w-4" /></button>
-                  <button className="text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-                  <button className="text-gray-400 hover:text-emerald-500"><CheckCircle className="h-4 w-4" /></button>
-                </div>
+    <div className="h-[calc(100vh-72px)] overflow-hidden bg-[#f6f8fc]">
+      <div className="grid h-full grid-cols-[360px_minmax(0,1fr)_340px]">
+        {/* Left: Gmail list */}
+        <section className="flex h-full flex-col border-r border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">Boîte Gmail</h1>
+                <p className="text-xs text-slate-500">
+                  {emails.length} message(s) chargés
+                </p>
               </div>
-              {email.unread && <div className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-600 rounded-full"></div>}
-            </div>
-          ))}
-        </div>
-      </div>
 
-      {/* Email Detail / AI Summary Panel */}
-      <AnimatePresence>
-        {selectedId && selectedEmail && (
-          <motion.div 
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="w-1/2 bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col overflow-hidden"
-          >
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-              <button 
-                onClick={() => setSelectedId(null)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                title="Fermer"
+              <button
+                onClick={loadEmails}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm hover:bg-slate-200"
               >
-                <ChevronRight className="h-5 w-5 text-gray-400" />
+                ↻
               </button>
-              <div className="flex items-center gap-3">
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg shadow-blue-600/20 active:scale-95 transition-all">
-                  <Reply className="h-4 w-4" /> Répondre
-                </button>
-                <button className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
-                  <MoreVertical className="h-5 w-5 text-gray-400" />
-                </button>
-              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8 space-y-8">
-              {/* Header */}
-              <div className="space-y-4">
-                <h1 className="text-2xl font-bold leading-tight text-gray-900">{selectedEmail.subject}</h1>
-                <div className="flex items-center gap-4">
-                  <img src={selectedEmail.sender.avatar} className="h-10 w-10 rounded-full" referrerPolicy="no-referrer" />
-                  <div className="flex-1">
-                    <p className="text-sm font-bold">{selectedEmail.sender.name}</p>
-                    <p className="text-xs text-gray-500">{selectedEmail.sender.email} • {selectedEmail.time}</p>
-                  </div>
-                </div>
-              </div>
+            <div className="mt-4 flex gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") loadEmails();
+                }}
+                placeholder='Rechercher : from:, subject:, "stage"...'
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
+          </div>
 
-              {/* AI Section */}
-              <div className="bg-indigo-50 rounded-2xl p-6 border border-indigo-100 relative overflow-hidden group shadow-sm transition-all">
-                <div className="absolute -top-3 left-4 px-3 py-1 bg-white border border-indigo-200 rounded-full text-[10px] font-bold text-indigo-600 flex items-center gap-1.5 shadow-sm z-10">
-                  ✨ Sommaire
-                </div>
-                
-                <div className="flex items-center justify-between mb-4 pt-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-indigo-600" />
-                    <span className="font-bold text-sm text-gray-900 uppercase tracking-wider">Analyse IA</span>
+          {error && (
+            <div className="m-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto">
+            {loadingEmails && (
+              <div className="p-4 text-sm text-slate-500">Chargement...</div>
+            )}
+
+            {!loadingEmails && emails.length === 0 && (
+              <div className="p-4 text-sm text-slate-500">
+                Aucun email trouvé.
+              </div>
+            )}
+
+            {emails.map((email) => (
+              <button
+                key={email.id}
+                onClick={() => openEmail(email.id)}
+                className={`w-full border-b border-slate-100 px-4 py-4 text-left transition hover:bg-slate-50 ${
+                  selectedEmail?.id === email.id
+                    ? "border-l-4 border-l-blue-600 bg-blue-50"
+                    : "border-l-4 border-l-transparent"
+                }`}
+              >
+                <div className="flex gap-3">
+                  <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+                    {firstLetter(email.sender)}
                   </div>
-                  {!summary && !isSummarizing && (
-                    <button 
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {senderName(email.sender)}
+                      </p>
+                      <span className="shrink-0 text-[11px] text-slate-400">
+                        {formatDate(email.date)}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 truncate text-sm font-medium text-slate-700">
+                      {email.subject || "Sans sujet"}
+                    </p>
+
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                      {email.snippet}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Center: email reading */}
+        <section className="h-full overflow-y-auto bg-[#f6f8fc]">
+          {!selectedEmail && !loadingDetail && (
+            <div className="flex h-full items-center justify-center">
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+                  ✉
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Sélectionnez un email
+                </h2>
+                <p className="mt-2 text-sm text-slate-500">
+                  Le contenu s’affichera ici, comme une vraie boîte Gmail.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {loadingDetail && (
+            <div className="p-8 text-sm text-slate-500">
+              Ouverture de l’email...
+            </div>
+          )}
+
+          {!loadingDetail && selectedEmail && (
+            <div className="mx-auto max-w-5xl px-8 py-6">
+              <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-8 py-6">
+                  <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+                    {selectedEmail.subject || "Sans sujet"}
+                  </h2>
+
+                  <div className="mt-5 flex items-center gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700">
+                      {firstLetter(selectedEmail.sender)}
+                    </div>
+
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {senderName(selectedEmail.sender)}
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {senderEmail(selectedEmail.sender)}
+                      </p>
+                    </div>
+
+                    <div className="ml-auto text-sm text-slate-400">
+                      {formatDate(selectedEmail.date)}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-wrap gap-3">
+                    <button
                       onClick={handleSummarize}
-                      className="text-xs font-bold text-indigo-600 px-3 py-1 bg-white border border-indigo-100 rounded-lg hover:bg-indigo-50 transition-colors shadow-sm"
+                      disabled={!!actionLoading}
+                      className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
                     >
-                      Résumer
+                      {actionLoading === "summary" ? "Résumé..." : "Résumer"}
                     </button>
-                  )}
+
+                    <button
+                      onClick={handleReply}
+                      disabled={!!actionLoading}
+                      className="rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+                    >
+                      {actionLoading === "reply" ? "Génération..." : "Suggérer réponse"}
+                    </button>
+
+                    <button
+                      onClick={handleImportance}
+                      disabled={!!actionLoading}
+                      className="rounded-full bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
+                    >
+                      {actionLoading === "importance" ? "Analyse..." : "Importance"}
+                    </button>
+
+                    <button
+                      onClick={handleAddToMemory}
+                      disabled={!!actionLoading}
+                      className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {actionLoading === "memory"
+                        ? "Indexation..."
+                        : "Ajouter à la mémoire IA"}
+                    </button>
+                  </div>
                 </div>
 
-                {isSummarizing ? (
-                  <div className="space-y-3 py-2">
-                    <div className="h-3 w-3/4 bg-gray-200 rounded animate-pulse"></div>
-                    <div className="h-3 w-1/2 bg-gray-200 rounded animate-pulse"></div>
-                    <div className="h-3 w-2/3 bg-gray-200 rounded animate-pulse"></div>
-                  </div>
-                ) : summary ? (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }} 
-                    animate={{ opacity: 1, y: 0 }}
-                    className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap leading-relaxed font-sans"
-                  >
-                    {summary}
-                  </motion.div>
-                ) : (
-                  <p className="text-sm text-gray-500">Besoin d'un résumé rapide ? L'IA peut analyser cet e-mail pour vous.</p>
-                )}
-
-                {summary && (
-                  <div className="mt-4 pt-4 border-t border-gray-200 flex gap-4">
-                    <button className="flex items-center gap-2 text-xs font-bold text-gray-600 hover:text-gray-900 transition-colors">
-                      <Copy className="h-3.5 w-3.5" /> Copier le résumé
-                    </button>
-                    <button className="flex items-center gap-2 text-xs font-bold text-gray-600 hover:text-gray-900 transition-colors">
-                      <Reply className="h-3.5 w-3.5" /> Préparer une réponse
-                    </button>
+                {memoryResult && (
+                  <div className="mx-8 mt-6 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                    {memoryResult}
                   </div>
                 )}
-                
-                <div className="absolute top-0 right-0 h-20 w-20 bg-purple-600/5 rounded-full blur-2xl pointer-events-none group-hover:bg-purple-600/10 transition-colors"></div>
-              </div>
 
-              {/* Body */}
-              <div className="text-gray-700 leading-relaxed text-base prose max-w-none">
-                {selectedEmail.body.split('\n').map((line, i) => <p key={i}>{line}</p>)}
-              </div>
-
-              {/* Attachments */}
-              {selectedEmail.attachments && (
-                <div className="pt-8 border-t border-gray-100 space-y-4">
-                  <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                    <Paperclip className="h-4 w-4" /> Pièces jointes ({selectedEmail.attachments.length})
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    {selectedEmail.attachments.map((file, i) => (
-                      <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100 hover:bg-gray-100 transition-colors cursor-pointer group">
-                        <div className="h-10 w-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                          <FileText className="h-5 w-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{file}</p>
-                          <p className="text-xs text-gray-500 uppercase">1.2 MB</p>
-                        </div>
-                      </div>
-                    ))}
+                {aiResult && (
+                  <div className="mx-8 mt-6 rounded-2xl border border-blue-100 bg-blue-50 p-5">
+                    <h3 className="font-bold text-blue-900">Résultat IA</h3>
+                    <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-blue-950">
+                      {aiResult}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+
+                <article className="px-8 py-8">
+                  <div
+                    className="email-content mx-auto max-w-3xl text-[15px] leading-8 text-slate-800"
+                    dangerouslySetInnerHTML={{ __html: sanitizedBody }}
+                  />
+                </article>
+              </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </section>
+
+        {/* Right: AI panel */}
+        <aside className="hidden h-full overflow-y-auto border-l border-slate-200 bg-white xl:block">
+          <div className="border-b border-slate-200 p-5">
+            <h2 className="text-lg font-bold text-slate-900">Assistant IA</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Actions rapides liées à l’email sélectionné.
+            </p>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <div className="rounded-3xl bg-gradient-to-br from-blue-600 to-violet-600 p-5 text-white shadow-lg">
+              <h3 className="text-lg font-bold">Mémoire intelligente</h3>
+              <p className="mt-2 text-sm text-blue-50">
+                Les emails ne sont ajoutés à ChromaDB qu’après validation de l’utilisateur.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="font-semibold text-slate-900">Flux RAG</h3>
+              <ol className="mt-3 space-y-2 text-sm text-slate-600">
+                <li>1. Lire l’email via Gmail API</li>
+                <li>2. Cliquer “Ajouter à la mémoire IA”</li>
+                <li>3. Chunking + indexation ChromaDB</li>
+                <li>4. Question dans le Chat RAG</li>
+              </ol>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4">
+              <h3 className="font-semibold text-slate-900">État</h3>
+              <div className="mt-3 flex items-center gap-2 text-sm text-green-700">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                Gmail connecté
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-sm text-green-700">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                ChromaDB actif
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
-};
-
-export default Emails;
+}

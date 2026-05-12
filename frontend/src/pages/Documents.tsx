@@ -1,245 +1,179 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Search, 
-  Send, 
-  FileText, 
-  File as FileIcon,
-  Maximize2,
-  ExternalLink,
-  Bot,
-  User,
-  Sparkles,
-  Paperclip,
-  Check
-} from 'lucide-react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { cn } from '@/src/lib/utils';
-import { askDriveAssistant } from '@/src/lib/gemini';
+import { useState } from "react";
+import { ingestFile } from "../services/api";
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: { name: string; type: 'pdf' | 'doc' | 'excel'; preview: string }[];
-}
+export default function Documents() {
+  const [file, setFile] = useState<File | null>(null);
+  const [source, setSource] = useState("manual_upload");
+  const [userId, setUserId] = useState("test_user");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState("");
 
-const mockSources: Message['sources'] = [
-  { name: 'Objectifs_Q2_Final.pdf', type: 'pdf', preview: 'Mise à l\'échelle des capacités IA et croissance...' },
-  { name: 'Roadmap_2025.docx', type: 'doc', preview: 'Jalons clés pour Q3 incluant l\'expansion...' }
-];
-
-const Documents: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: 'Bonjour ! Je suis votre assistant IA Workspace. J\'ai analysé vos fichiers Google Drive. Posez-moi n\'importe quelle question sur vos documents, comme "Quels sont nos objectifs pour le Q2 ?" ou "Résume la dernière proposition de projet".'
+  const handleUpload = async () => {
+    if (!file) {
+      setError("Veuillez sélectionner un fichier.");
+      return;
     }
-  ]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    setLoading(true);
+    setError("");
+    setResult(null);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
-
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    // Contexte fictif pour la démo
-    const context = "Objectifs (OKRs) pour le Q2 : Augmenter la base d'utilisateurs de 20 %, Terminer l'outil de productivité IA, réduire la latence de 40 %. Sarah Wilson est la responsable de la planification stratégique.";
-    
     try {
-      const response = await askDriveAssistant(input, context);
-      const assistantMessage: Message = { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: response || "Je n'ai pas pu traiter cette requête.",
-        sources: input.toLowerCase().includes('okr') || input.toLowerCase().includes('objectif') ? [mockSources?.[0] as any] : []
-      };
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error(error);
+      const res = await ingestFile(file, {
+        user_id: userId,
+        source,
+      });
+
+      setResult(res);
+    } catch (err) {
+      console.error(err);
+      setError("Erreur lors de l’indexation du fichier.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex h-[calc(100vh-10rem)] gap-8">
-      {/* Chat Area */}
-      <div className="flex-1 bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 bg-indigo-100 rounded-xl flex items-center justify-center">
-              <Bot className="h-6 w-6 text-indigo-600" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold leading-none">Assistant Drive</h2>
-              <div className="flex items-center gap-1.5 mt-1">
-                <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-gray-500 font-medium">Prêt à aider</span>
-              </div>
-            </div>
-          </div>
-          <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-            <Maximize2 className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-8">
-          {messages.map((message) => (
-            <div 
-              key={message.id} 
-              className={cn(
-                "flex gap-4 max-w-4xl",
-                message.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
-              )}
-            >
-              <div className={cn(
-                "h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border",
-                message.role === 'user' ? "bg-white border-gray-200" : "bg-indigo-600 border-indigo-700 text-white"
-              )}>
-                {message.role === 'user' ? <User className="h-5 w-5 text-gray-600" /> : <Bot className="h-5 w-5" />}
-              </div>
-              
-              <div className="space-y-4">
-                <div className={cn(
-                  "p-5 rounded-2xl shadow-sm text-base leading-relaxed",
-                  message.role === 'user' 
-                    ? "bg-white border border-gray-100 text-gray-800" 
-                    : "bg-gray-50 border border-gray-100 text-gray-800"
-                )}>
-                  <div className="prose prose-blue max-w-none prose-p:my-0 prose-ul:my-2 prose-li:my-1">
-                     <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
-                  </div>
-                </div>
-
-                {message.sources && message.sources.length > 0 && (
-                  <div className="flex flex-wrap gap-3">
-                    {message.sources.map((source, i) => (
-                      <div key={i} className="bg-white border border-gray-200 rounded-xl p-3 flex items-center gap-3 hover:border-indigo-300 transition-colors cursor-pointer group max-w-xs shadow-sm">
-                        <div className="h-8 w-8 bg-indigo-50 rounded flex items-center justify-center shrink-0">
-                          <FileIcon className="h-4 w-4 text-indigo-600" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-gray-900 truncate">{source.name}</p>
-                          <p className="text-[10px] text-gray-500 truncate mt-0.5">{source.preview}</p>
-                        </div>
-                        <ExternalLink className="h-3 w-3 text-gray-300 group-hover:text-indigo-600 transition-colors shrink-0" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isLoading && (
-            <div className="flex gap-4">
-              <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
-                <Bot className="h-5 w-5 text-white" />
-              </div>
-              <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 flex items-center gap-2">
-                <div className="h-1.5 w-1.5 bg-indigo-600 rounded-full animate-bounce"></div>
-                <div className="h-1.5 w-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                <div className="h-1.5 w-1.5 bg-indigo-600 rounded-full animate-bounce [animation-delay:0.4s]"></div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-6 bg-white border-t border-gray-100">
-          <div className="relative group">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-              placeholder="Posez une question sur vos fichiers..."
-              className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-4 pr-32 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all resize-none min-h-[90px] shadow-inner"
-            />
-            <div className="absolute right-4 bottom-4 flex items-center gap-3">
-              <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-                <Paperclip className="h-5 w-5" />
-              </button>
-              <button 
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                className={cn(
-                  "px-5 py-2 rounded-xl h-10 flex items-center justify-center gap-2 font-bold transition-all shadow-md active:scale-95",
-                  input.trim() && !isLoading 
-                    ? "bg-indigo-600 text-white shadow-indigo-600/20 hover:bg-indigo-700" 
-                    : "bg-gray-100 text-gray-400 cursor-not-allowed shadow-none"
-                )}
-              >
-                Envoyer <Send className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-4 mt-4 text-[10px] uppercase font-bold tracking-widest text-gray-400 px-2">
-            <span>Propulsé par Gemini 3.1 Pro</span>
-            <div className="h-1 w-1 bg-gray-300 rounded-full"></div>
-            <span>Intégré à Google Drive</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Files Overview Sidebar */}
-      <div className="w-80 space-y-6 hidden xl:block">
-        <section className="bg-white rounded-3xl border border-gray-200 shadow-sm p-6 overflow-hidden">
-          <h3 className="text-sm font-bold text-gray-900 border-b border-gray-50 pb-4 mb-4 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-amber-500" /> Contexte recommandé
-          </h3>
-          <div className="space-y-4">
-            {['Strategie_Q3.pdf', 'Budget_Tableau.xlsx', 'Equipe_Objectifs.doc'].map((file, i) => (
-              <div key={i} className="flex items-center gap-3 group cursor-pointer">
-                <div className="h-9 w-9 bg-gray-50 rounded-lg flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
-                  <FileText className="h-4 w-4 text-gray-400 group-hover:text-indigo-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold text-gray-700 truncate group-hover:text-indigo-600 transition-colors">{file}</p>
-                  <p className="text-[10px] text-gray-400">Haute pertinence</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button className="w-full mt-6 py-3 border border-gray-100 rounded-xl text-xs font-bold text-gray-500 hover:bg-gray-50 transition-colors">
-            Gérer l'indexation
-          </button>
+    <div className="min-h-[calc(100vh-72px)] bg-[#f6f8fc] px-8 py-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <h1 className="text-3xl font-bold text-slate-900">Sources IA</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+            Cette page gère les sources qui peuvent alimenter la mémoire RAG :
+            pièces jointes Gmail, fichiers Google Drive et upload manuel pour test.
+          </p>
         </section>
 
-        <section className="ai-gradient rounded-2xl p-6 text-white shadow-deep relative overflow-hidden group">
-          <div className="relative z-10">
-            <h4 className="text-xs font-bold mb-1">Posez une question à Drive</h4>
-            <p className="text-[10px] opacity-90 mb-3 leading-relaxed">
-              Demandez ce que vous voulez sur vos documents. Je scannerai vos fichiers pour trouver la réponse.
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-2xl">
+              ✉
+            </div>
+            <h2 className="mt-4 text-xl font-bold text-slate-900">
+              Pièces jointes Gmail
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Les documents reçus par email doivent être indexés après validation
+              utilisateur depuis la page E-mails.
             </p>
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="Ex: Quels sont les OKR?" 
-                className="w-full bg-white/20 border-white/30 border text-[10px] py-1.5 px-3 rounded-lg placeholder:text-white/60 focus:outline-none focus:bg-white/30 transition-all font-sans"
+            <button
+              disabled
+              className="mt-5 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-400"
+            >
+              Géré depuis E-mails
+            </button>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-green-50 text-2xl">
+              ⬢
+            </div>
+            <h2 className="mt-4 text-xl font-bold text-slate-900">
+              Google Drive
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Prochaine étape : afficher les fichiers Drive et ajouter chaque
+              document à ChromaDB après confirmation.
+            </p>
+            <button
+              disabled
+              className="mt-5 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-400"
+            >
+              À connecter ensuite
+            </button>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-2xl">
+              ⬆
+            </div>
+            <h2 className="mt-4 text-xl font-bold text-slate-900">
+              Upload manuel
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Utilisé seulement pour tester rapidement le pipeline RAG.
+            </p>
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <h2 className="text-xl font-bold text-slate-900">
+            Test manuel d’indexation
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Cette partie restera utile pour démo, mais dans la vraie app les fichiers
+            viendront surtout de Gmail et Drive.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Fichier à indexer
+              </label>
+              <input
+                type="file"
+                accept=".txt,.md,.pdf,.docx,.xlsx,.xls,.csv"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm"
               />
-              <div className="absolute right-2 top-1.5">
-                <Send className="h-3 w-3 text-white" />
-              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                User ID
+              </label>
+              <input
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-700">
+                Source
+              </label>
+              <input
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              />
             </div>
           </div>
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all"></div>
+
+          <div className="mt-6 flex items-center gap-3">
+            <button
+              onClick={handleUpload}
+              disabled={loading}
+              className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {loading ? "Indexation..." : "Indexer le fichier"}
+            </button>
+
+            {file && (
+              <span className="text-sm text-slate-500">
+                Fichier : <strong>{file.name}</strong>
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {result && (
+            <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-4">
+              <h3 className="font-bold text-green-800">Indexation terminée</h3>
+              <pre className="mt-3 max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs">
+                {JSON.stringify(result, null, 2)}
+              </pre>
+            </div>
+          )}
         </section>
       </div>
     </div>
   );
-};
-
-export default Documents;
+}

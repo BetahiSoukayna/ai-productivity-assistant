@@ -1,0 +1,23 @@
+AI Productivity Assistant - Document de Test
+
+Objectif du projet :
+Le projet AI Productivity Assistant est une application web intelligente de productivité
+basée sur Google Workspace. Son objectif principal est de créer un assistant IA capable
+de se connecter à Gmail, Google Drive, Google Calendar et Google Tasks pour aider
+l'utilisateur à gérer ses emails, documents, tâches et événements.
+
+Architecture technique :
+- Backend Python avec FastAPI pour l'API REST
+- Module RAG (Retrieval-Augmented Generation) avec LangGraph
+- Base vectorielle ChromaDB Cloud pour le stockage des embeddings
+- Frontend React pour l'interface utilisateur
+- Connecteurs Google Workspace (Gmail, Drive, Calendar, Tasks)
+
+Fonctionnalités principales :
+1. Ingestion automatique de documents (PDF, DOCX, XLSX, images)
+2. Extraction et chunking intelligent du contenu
+3. Recherche sémantique dans la base de connaissances
+4. Génération de réponses contextuelles via LLM (Groq/Llama)
+5. Interface de chat pour interagir avec l'assistant
+
+Ce document sert de fichier de test pour valider le pipeline d'ingestion Phase 1.
